@@ -76,6 +76,10 @@ public class BasicTxText {
         txManager.rollback(status2);
     }
 
+    /**
+     * 외부 트랜젝션 : 커밋
+     * 내부 트랜젝션 : 커밋
+     */
     @Test
     void inner_commit() {
         log.info("외부 트랜젝션 시작");
@@ -91,6 +95,52 @@ public class BasicTxText {
         log.info("외부 트랜젝션 커밋");
         txManager.commit(outer);
 
+    }
+
+    /**
+     * 외부 트랜젝션 : 롤백
+     * 내부 트랜젝션 : 커밋
+     */
+    @Test
+    void outer_rollback() {
+        log.info("외부 트랜젝션 시작");
+        TransactionStatus outer = txManager.getTransaction(new DefaultTransactionAttribute());
+        log.info("outer.isNewTransaction()={}", outer.isNewTransaction());
+
+        log.info("내부 트랜젝션 시작");
+        TransactionStatus inner = txManager.getTransaction(new DefaultTransactionAttribute());
+        log.info("inner.isNewTransaction()={}", inner.isNewTransaction());
+        log.info("내부 트랜젝션 커밋");
+        txManager.commit(inner);
+
+        log.info("외부 트랜젝션 롤백");
+        txManager.rollback(outer);
+        // 외부 트랜젝션이 롤백되면서 전체가 롤백된다.
+    }
+
+    /**
+     * 외부 트랜젝션 : 커밋
+     * 내부 트랜젝션 : 롤백
+     */
+    @Test
+    void inner_rollback() {
+        log.info("외부 트랜젝션 시작");
+        TransactionStatus outer = txManager.getTransaction(new DefaultTransactionAttribute());
+        log.info("outer.isNewTransaction()={}", outer.isNewTransaction());
+
+        log.info("내부 트랜젝션 시작");
+        TransactionStatus inner = txManager.getTransaction(new DefaultTransactionAttribute());
+        log.info("inner.isNewTransaction()={}", inner.isNewTransaction());
+        log.info("내부 트랜젝션 롤백");
+        txManager.rollback(inner);
+        // Participating transaction failed - marking existing transaction as rollback-only
+        // 내부 트랜젝션 롤백하면, 트랜젝션에 롤백전용(rollback-only) 이 체크된다.
+
+        log.info("외부 트랜젝션 커밋");
+        txManager.commit(outer);
+        // Global transaction is marked as rollback-only
+        // 커밋을 호출했지만 롤백전용(rollback-only) 표시가되어 있어 물리 트랜젝션을 롤백한다.
+        // 롤백후 UnexpectedRollbackException 예외를 던진다.
     }
 }
 /* double_commit() 분석 */
