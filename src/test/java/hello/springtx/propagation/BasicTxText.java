@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.interceptor.DefaultTransactionAttribute;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
@@ -142,6 +143,28 @@ public class BasicTxText {
         // 커밋을 호출했지만 롤백전용(rollback-only) 표시가되어 있어 물리 트랜젝션을 롤백한다.
         // 롤백후 UnexpectedRollbackException 예외를 던진다.
     }
+
+    /**
+     * 트랜젝션 전파 옵션 : EQUIRES_NEW
+     */
+    @Test
+    void inner_rollback_requires_new() {
+        log.info("외부 트랜젝션 시작");
+        TransactionStatus outer = txManager.getTransaction(new DefaultTransactionAttribute());
+        log.info("outer.isNewTransaction()={}", outer.isNewTransaction());
+
+        log.info("내부 트랜젝션 시작");
+        DefaultTransactionAttribute definition = new DefaultTransactionAttribute();
+        definition.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        TransactionStatus inner = txManager.getTransaction(definition);
+        log.info("inner.isNewTransaction()={}", inner.isNewTransaction());
+
+        log.info("내부 트랜젝션 롤백");
+        txManager.rollback(inner);
+
+        log.info("외부 트랜젝션 커밋");
+        txManager.commit(outer);
+    }
 }
 /* double_commit() 분석 */
 // 실행결과, 트랜젝션 1 과 트랜젝션 2 가 같은 conn0 커넥션을 사용중이다. connectionPool 때문이다.
@@ -185,3 +208,17 @@ public class BasicTxText {
 // 스프링은 이렇게 여러 트랜젝션이 함께 사용되는 경우,
 // 처음 트랜젝션을 시작한 외부 트랜젝션이 실제 물리트랜젝션을 관리하도록 한다.
 // 이를 통해 트랜젝션 중복 커밋 문제를 해결한다.
+
+/* inner_rollback_requires_new() 분석 */
+// 트랜젝션 전파 옵션 : TransactionDefinition.PROPAGATION_REQUIRES_NEW
+// 내부 트랜젝션을 시작할 때 기존 트랜젝션에 참여하는 것이 아니라 새로운 물리 트랜젝션을 만들어 시작한다.
+// REQUIRES_NEW 옵션을 사용하면 물리 트랜젝션이 명확히 분리된다.
+// REQUIRES_NEW 옵션은 DB 커넥션이 동시에 2개 생성되는 점을 유의해야 한다.
+
+// 로그분석
+// 외부 트랜젝션 시작 : conn0 획득 (Acquired Connection), manual commit 으로 변경해서 물리 트랜젝션 시작
+// 신규 이므로 : outer.isNewTransaction()=true
+// 내부 트랜젝션 시작 : conn1 획득 (Acquired Connection), manual commit 으로 변경해서 물리 트랜젝션 시작
+// 참여 아닌 신규이므로 : inner.isNewTransaction()=true
+// 내부 트랜젝션 롤백 : Rolling back (conn1) 물리 롤백 실행
+// 외부 트랜젝션 커밋 : Committing (conn0) 물리 커밋 실행
