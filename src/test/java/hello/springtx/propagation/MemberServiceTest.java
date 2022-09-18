@@ -90,6 +90,31 @@ class MemberServiceTest {
         // MemberService 만 트랜젝션을 처리하므로
         // 논리 트랜젝션, 물리 트랜젝션, 외부 트랜젝션, 내부 트랜젝션, readOnly, 신규 트랜젝션, 트랜젝션 전파 등 신경 X
     }
+
+    /**
+     * 트랜젝션 전파 : 모든 논리 트랜젝션 성공 -> 물리 트랜젝션 커밋
+     * MemberService     @Transactional : ON
+     * MemberRepository  @Transactional : ON
+     * LogRepository     @Transactional : ON
+     */
+    @Test
+    void outerTxOn_success() {
+        // given
+        String username = "outerTxOn_success";
+
+        // when
+        memberService.joinV1(username);
+
+        // then : 모든 데이터 정상 저장
+        assertThat(memberRepository.find(username)).isPresent();
+        assertThat(logRepository.find(username)).isPresent();
+
+        // client A (outerTxOn_success()메소드) 가 MemberService 호출하면서 트랜젝션 AOP 호출
+        // -> 신규 트랜젝션 생성, 물리 트랜젝션 시작
+        // MemberRepository 호출 : 기존 트랜젝션에 참여 -> 트랜젝션 AOP 호출 -> 정상응답 -> txManager 에 커밋 요청 (신규 트랜젝션 아니므로 실제 커밋은 x)
+        // LogRepository 호출 : 기존 트랜젝션 참여 -> 트랜젝션 AOP 호출 -> 정상응답 -> txManager 에 커밋요청 (신규 트랜젝션 아니므로 실제 커밋은 x)
+        // MemberService 로직 호출 끝나고 트랜젝션 AOP 호출 -> 정상응답 -> txManager 에 커밋요청 -> 신규 트랜젝션 이므로 물리 커밋
+    }
 }
 // JPA 와 데이터 변경
 // JPA 를 통한 모든 데이터 변경 (등록, 수정, 삭제) 에는 트랜젝션이 필요하다.
