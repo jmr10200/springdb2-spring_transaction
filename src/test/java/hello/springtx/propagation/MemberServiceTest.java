@@ -115,6 +115,36 @@ class MemberServiceTest {
         // LogRepository 호출 : 기존 트랜젝션 참여 -> 트랜젝션 AOP 호출 -> 정상응답 -> txManager 에 커밋요청 (신규 트랜젝션 아니므로 실제 커밋은 x)
         // MemberService 로직 호출 끝나고 트랜젝션 AOP 호출 -> 정상응답 -> txManager 에 커밋요청 -> 신규 트랜젝션 이므로 물리 커밋
     }
+
+    /**
+     * 트랜젝션 전파 : 로그 논리 트랜젝션 실패 -> 물리 트랜젝션 롤백
+     * MemberService     @Transactional : ON
+     * MemberRepository  @Transactional : ON
+     * LogRepository     @Transactional : ON Exception
+     */
+    @Test
+    void outerTxOn_fail() {
+        // given
+        String username = "로그예외_outerTxOn_fail";
+
+        // when
+        assertThatThrownBy(() -> memberService.joinV1(username))
+                .isInstanceOf(RuntimeException.class);
+
+        // then : 모든 데이터 롤백
+        assertThat(memberRepository.find(username)).isEmpty();
+        assertThat(logRepository.find(username)).isEmpty();
+
+        // client A (outerTxOn_success()메소드) 가 MemberService 호출하면서 트랜젝션 AOP 호출
+        // -> 신규 트랜젝션 생성, 물리 트랜젝션 시작
+        // MemberRepository 호출 : 기존 트랜젝션에 참여 -> 트랜젝션 AOP 호출 -> 정상응답 -> txManager 에 커밋 요청 (신규 트랜젝션 아니므로 실제 커밋은 x)
+        // LogRepository 호출 : 기존 트랜젝션 참여 -> 트랜젝션 AOP 호출 -> 예외발생 -> txManager 에 롤백요청 (신규 트랜젝션 아니므로 실제 롤백 x : rollbackOnly 설정)
+        //  -> 예외 던짐, 트랜젝션 AOP 도 그대로 예외를 밖으로 던짐
+        // MemberService 런타임 예외를 받게 됨 -> txManager 에 롤백 요청 -> 신규 트랜젝션 이므로 물리 롤백 호출
+        //  (참고 : 이경우 예외가 던져져 어차피 롤백되었기 때문에 rollbackOnly 설정 참고 안하고 롤백)
+        // 이렇게 함으로서 회원과 로그를 하나의 트랜젝션으로 묶어 하나라도 롤백시 전체 롤백되므로
+        // 데이터 정합성에 문제가 발생하지 않는다.
+    }
 }
 // JPA 와 데이터 변경
 // JPA 를 통한 모든 데이터 변경 (등록, 수정, 삭제) 에는 트랜젝션이 필요하다.
