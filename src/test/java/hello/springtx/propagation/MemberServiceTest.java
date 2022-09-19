@@ -175,6 +175,35 @@ class MemberServiceTest {
         // 내부 트랜젝션이 롤백 되었는데, 외부 트랜젝션이 커밋되면 UnexpectedRollbackException 발생한다.
         // rollbackOnly 상황에서 커밋이 발생하면 UnexpectedRollbackException 발생한다.
     }
+
+    /**
+     * 회원가입을 시도한 로그를 남기는데 실패하더라도 회원가입은 유지해야된다.
+     * 요구사항 OK
+     * MemberService     @Transactional : ON
+     * MemberRepository  @Transactional : ON
+     * LogRepository     @Transactional(REQUIRES_NEW) : 신규 트랜젝션 OPTION 설정
+     */
+    @Test
+    void recoverException_success() {
+        // given
+        String username = "로그예외_recoverException_success";
+
+        // when
+        memberService.joinV2(username);
+
+        // then : member 저장, log 롤백
+        assertThat(memberRepository.find(username)).isPresent();
+        assertThat(logRepository.find(username)).isEmpty();
+
+        // 물리 트랜젝션 1 : MemberService, MemberRepository
+        // 물리 트랜젝션 2 : LogRepository (REQUIRES_NEW 옵션으로 새 트랜젝션)
+        // 회원 저장 OK 커밋, 로그 실패 롤백
+
+        // 정리
+        // REQUIRES_NEW 를 사용하면 물리 트랜젝션 자체가 완전히 분리된다.
+        // 항상 신규로 트랜젝션을 생성하는 옵션이기 때문이다.
+        // 신규 트랜젝션이므로 rollbackOnly 표시가 되지 않는다.
+    }
 }
 // JPA 와 데이터 변경
 // JPA 를 통한 모든 데이터 변경 (등록, 수정, 삭제) 에는 트랜젝션이 필요하다.
@@ -189,3 +218,20 @@ class MemberServiceTest {
 // -> client A 는 MemberService 에 트랜젝션을 선언해서 관리하면 될 듯 하다.
 //    그런데, 이렇게하면 client B, client C 의 요구조건을 적용할 수 없다.
 //    이러한 문제를 해결하기 위해 트랜젝션 전파(propagation) 이 필요한 것이다.
+
+/* recoverException_success() 추가 */
+// 논리 트랜젝션은 하나라도 롤백되면 관련된 물리 트랜젝션 전체가 롤백된다.
+// 이때문에 로그 저장이 실패해도 회원 저장을 한다는 요구사항에 부응하기 위해서는 트랜젝션을 분리해야한다.
+// 이때 사용하는 옵션이 REQUIRES_NEW 이다.
+
+// 주의
+// REQUIRES_NEW 를 사용하면 하나의 HTTP 요청에 동시에 2개의 데이터베이스 커넥션을 사용하게 된다.
+// 따라서 성능이 중요한 곳에서는 이를 주의해서 사용해야 한다.
+// REQUIRES_NEW 를 사용하지 않고 문제를 해결할 수 있는 단순한 방법이 있다면 그 방법을 택하는 것이 좋다.
+
+// 예를들면, 아래처럼 구조를 변경하는 것이다.
+// 클라이언트 호출 -> MemberFacade ->
+// 분기1 : -> 물리 트랜젝션1 : MemberService, MemberRepository
+// 분기2 : -> 물리 트랜젝션2 : LogRepository
+// 이렇게 하면 HTTP 요청에 동시에 2개 커넥션을 사용하지 않는다. 순차적으로 사용후 반환한다.
+// 구조상으로 Facade 가 생기므로 REQUIRES_NEW 가 깔끔한 경우도 있으므로 장단점을 이해하고 적절한 선택이 요구된다.
