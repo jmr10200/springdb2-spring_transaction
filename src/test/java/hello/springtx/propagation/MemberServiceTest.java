@@ -5,6 +5,7 @@ import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.UnexpectedRollbackException;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -144,6 +145,35 @@ class MemberServiceTest {
         //  (참고 : 이경우 예외가 던져져 어차피 롤백되었기 때문에 rollbackOnly 설정 참고 안하고 롤백)
         // 이렇게 함으로서 회원과 로그를 하나의 트랜젝션으로 묶어 하나라도 롤백시 전체 롤백되므로
         // 데이터 정합성에 문제가 발생하지 않는다.
+    }
+
+    /**
+     * 회원가입을 시도한 로그를 남기는데 실패하더라도 회원가입은 유지해야된다.
+     * 요구사항 실패 예제 : 롤백되고 UnexpectedRollbackException 발생
+     * MemberService     @Transactional : ON
+     * MemberRepository  @Transactional : ON
+     * LogRepository     @Transactional : ON Exception
+     */
+    @Test
+    void recoverException_fail() {
+        // given
+        String username = "로그예외_recoverException_fail";
+
+        // when
+        assertThatThrownBy(() -> memberService.joinV2(username))
+                .isInstanceOf(UnexpectedRollbackException.class);
+
+        // then : 모든 데이터 롤백
+        assertThat(memberRepository.find(username)).isEmpty();
+        assertThat(logRepository.find(username)).isEmpty();
+
+        // 내부 트랜젝션에서 rollbackOnly 를 설정하므로 결과적으로 물리트랜젝션은 롤백한다.
+        // UnexpectedRollbackException 가 던져진다.
+
+        // 정리하면,
+        // 논리 트랜젝션 중 하나라도 롤백되면 전체 트랜젝션 롤백 된다.
+        // 내부 트랜젝션이 롤백 되었는데, 외부 트랜젝션이 커밋되면 UnexpectedRollbackException 발생한다.
+        // rollbackOnly 상황에서 커밋이 발생하면 UnexpectedRollbackException 발생한다.
     }
 }
 // JPA 와 데이터 변경
